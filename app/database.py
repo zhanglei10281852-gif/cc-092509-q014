@@ -335,6 +335,63 @@ CREATE TABLE IF NOT EXISTS dossier_events (
     occurred_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_dossier_events_dossier ON dossier_events(dossier_id, id);
+
+CREATE TABLE IF NOT EXISTS offline_packages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    package_code TEXT NOT NULL,
+    origin_site TEXT NOT NULL,
+    sequence INTEGER NOT NULL CHECK(sequence >= 1),
+    parent_package_code TEXT,
+    parent_digest TEXT,
+    payload_digest TEXT NOT NULL,
+    package_digest TEXT NOT NULL UNIQUE,
+    signature TEXT,
+    direction TEXT NOT NULL CHECK(direction IN ('exported','imported')),
+    status TEXT NOT NULL CHECK(status IN ('exported','staged','committed','failed')),
+    item_count INTEGER NOT NULL CHECK(item_count >= 0),
+    result_json TEXT,
+    error_message TEXT,
+    created_at TEXT NOT NULL,
+    committed_at TEXT,
+    UNIQUE(origin_site, package_code)
+);
+CREATE INDEX IF NOT EXISTS idx_offline_packages_origin ON offline_packages(origin_site, sequence);
+
+CREATE TABLE IF NOT EXISTS offline_package_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    package_id INTEGER NOT NULL REFERENCES offline_packages(id) ON DELETE CASCADE,
+    item_index INTEGER NOT NULL,
+    item_type TEXT NOT NULL CHECK(item_type IN ('intake_batch','dossier_register','approval_result','vault_transfer')),
+    item_key TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    payload_digest TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','applied','skipped','conflict','failed','exported')),
+    resource_type TEXT,
+    resource_id TEXT,
+    error_message TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(package_id, item_index),
+    UNIQUE(package_id, item_key)
+);
+
+CREATE TABLE IF NOT EXISTS dossier_forks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fork_code TEXT NOT NULL UNIQUE,
+    dossier_id INTEGER NOT NULL REFERENCES dossiers(id),
+    package_id INTEGER NOT NULL REFERENCES offline_packages(id),
+    item_id INTEGER NOT NULL REFERENCES offline_package_items(id),
+    reason TEXT NOT NULL,
+    local_snapshot_json TEXT NOT NULL,
+    incoming_payload_json TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','resolved_local','resolved_remote')),
+    resolution_note TEXT,
+    resolved_by INTEGER REFERENCES users(id),
+    resolved_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_dossier_forks_state ON dossier_forks(state);
 """
 
 PERMISSIONS = [
@@ -353,6 +410,9 @@ PERMISSIONS = [
     ("approvals.decide", "审批高风险操作", "approvals", "decide"),
     ("vaults.read_sensitive", "查看精确密级库位", "vaults", "read_sensitive"),
     ("incidents.manage", "管理泄密事件", "incidents", "manage"),
+    ("offline_packages.read", "查看离线移交包", "offline_packages", "read"),
+    ("offline_packages.manage", "导入导出离线移交包", "offline_packages", "manage"),
+    ("offline_packages.adjudicate", "裁决离线分叉", "offline_packages", "adjudicate"),
 ]
 
 
@@ -432,9 +492,10 @@ def init_db() -> None:
             "dossier_manager": [
                 "dossiers.read", "dossiers.write", "dossiers.disclose", "dossiers.dispose",
                 "access_loans.manage", "inventory_review.manage", "incidents.manage",
+                "offline_packages.read", "offline_packages.manage",
             ],
             "researcher": ["dossiers.read", "dossiers.disclose"],
-            "approver": ["dossiers.read", "approvals.decide"],
+            "approver": ["dossiers.read", "approvals.decide", "offline_packages.read", "offline_packages.adjudicate"],
             "auditor": ["dossiers.read", "audit.read"],
         }
         for role_code, permission_codes in role_permissions.items():

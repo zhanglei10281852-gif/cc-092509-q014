@@ -10,6 +10,7 @@ from app.core.errors import DomainError
 from app.database import close_connection, init_db
 from app.archives.router import router as archives_router
 from app.archives.extended_router import router as archive_operations_router
+from app.archives.offline_router import router as offline_packages_router
 
 
 @asynccontextmanager
@@ -39,6 +40,7 @@ app.include_router(audit.router)
 app.include_router(system.router)
 app.include_router(archives_router)
 app.include_router(archive_operations_router)
+app.include_router(offline_packages_router)
 
 
 @app.get("/")

@@ -101,6 +101,7 @@ class TransferService:
                 "from_vault_id": before["vault_id"],
                 "to_vault_id": target["id"],
                 "reason": data["reason"],
+                "base_version": before["version"],
             },
             correlation_id=data.get("correlation_id"),
         )
